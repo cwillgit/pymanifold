@@ -147,57 +147,6 @@ class Schematic():
             self.dg.edges[port_from, port_to][key] = attr
         return
 
-    def retrieve(self, port_in, attr, port_out):
-        if not port_out:
-            if isinstance(port_in, tuple):
-                return self.dg.edges[port_in][attr]
-            else:
-                return self.dg.nodes[port_in][attr]
-        else:
-            return self.dg.edges[(port_in, port_out)][attr]
-
-    def get_channel_kind(self, port_in, port_out=None):
-        return self.retrieve(port_in,'kind', port_out)
-
-    def get_channel_length(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'length', port_out)
-
-    def get_channel_min_length(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'min_length', port_out)
-
-    def get_channel_width(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'width', port_out)
-
-    def get_channel_min_width(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'min_width', port_out)
-
-    def get_channel_height(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'height', port_out)
-
-    def get_channel_min_height(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'min_height', port_out)
-
-    def get_channel_flow_rate(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'flow_rate', port_out)
-
-    def get_channel_droplet_volume(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'droplet_volume', port_out)
-
-    def get_channel_viscosity(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'viscosity', port_out)
-
-    def get_channel_resistance(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'resistance', port_out)
-
-    def get_channel_phase(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'phase', port_out)
-
-    def get_channel_port_from(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'port_from', port_out)
-
-    def get_channel_port_to(self, port_in, port_out=None):
-        return self.retrieve(port_in, 'port_to', port_out)
-
     def port(self,
              name,
              kind,
@@ -274,6 +223,80 @@ class Schematic():
             self.dg.nodes[name][key] = attr
         return
 
+    def elec_port(self, name, kind, min_pressure=False, min_flow_rate=False, x=False, y=False, voltage=False, current=False, fluid_name='default'):
+        """Create new electrical port where fluids and voltages can enter or exit the circuit, any
+        optional tag left empty will be converted to a variable for the SMT
+        solver to solve for a given value, units in brackets
+
+        :param str name: The name of the port to use when defining channels
+        :param str kind: Define if this is an 'input' or 'output' port
+        :param float density: Density of fluid (kg/m^3)
+        :param float min_viscosity: Viscosity of the fluid (Pa*s)
+        :param float min_pressure: Pressure of the input fluid, (Pa)
+        :param float min_flow_rate - flow rate of input fluid, (m^3/s)
+        :param float X: x-position of port on chip schematic (m)
+        :param float Y: y-position of port on chip schematic (m)
+		:param float voltage: Voltage value passing through the port (V)
+		:param float current: Current value passing through the port (A)
+        :returns: None -- no issues with creating this port
+        :raises: TypeError if an input parameter is wrong type
+                 ValueError if an input parameter has an invalid value
+        """
+        # Checking that arguments are valid
+        if not isinstance(name, str) or not isinstance(kind, str):
+            raise TypeError("name and kind must be strings")
+        if name in self.dg.nodes:
+            raise ValueError("Must provide a unique name")
+        if kind.lower() not in self.translation_strats.keys():
+            raise ValueError("kind must be %s" % self.translation_strats.keys())
+
+        # Initialize fluid properties
+        fluid_properties = Fluid(fluid_name)
+
+        # Ports are stored with nodes because ports are just a specific type of
+        # node that has a constant flow rate
+        # only accept ports of the right kind (input or output)
+        attributes = {'kind': kind.lower(),
+                      'viscosity': Symbol(name+'_viscosity', REAL),
+                      'min_viscosity': fluid_properties.min_viscosity,
+                      'pressure': Symbol(name+'_pressure', REAL),
+                      'min_pressure': min_pressure,
+                      'flow_rate': Symbol(name+'_flow_rate', REAL),
+                      'min_flow_rate': min_flow_rate,
+                      'density': Symbol(name+'_density', REAL),
+                      'min_density': fluid_properties.min_density,
+                      'x': Symbol(name+'_X', REAL),
+                      'y': Symbol(name+'_Y', REAL),
+                      'min_x': x,
+                      'min_y': y,
+                      'voltage': voltage,
+                      'current': current,
+                      }
+
+        # list of values that should all be positive numbers
+        not_neg = ['min_x', 'min_y', 'min_pressure', 'min_flow_rate',
+                   'min_viscosity', 'min_density']
+        for param in not_neg:
+            try:
+                if attributes[param] is False:
+                    continue
+                elif attributes[param] < 0:
+                    raise ValueError("port '%s' parameter '%s' must be >= 0" %
+                                     (name, param))
+            except TypeError as e:
+                raise TypeError("port '%s' parameter '%s' must be int" %
+                                (name, param))
+            except ValueError as e:
+                raise ValueError(e)
+
+        # Create this node in the graph
+        self.dg.add_node(name)
+        # Add argument to attributes within NetworkX
+        for key, attr in attributes.items():
+            self.dg.nodes[name][key] = attr
+        return
+
+
     def node(self, name, x=False, y=False, kind='node'):
         """Create new node where fluids merge or split, kind of node (T-junction,
         Y-junction, cross, etc.) can be specified if not then a basic node
@@ -338,45 +361,6 @@ class Schematic():
                 self.dg.nodes[name][key] = attr
         return
 
-    def get_node_kind(self, name):
-        return self.dg.nodes[name]['kind']
-
-    def get_node_pressure(self, name):
-        return self.dg.nodes[name]['pressure']
-
-    def get_node_min_pressure(self, name):
-        return self.dg.nodes[name]['min_pressure']
-
-    def get_node_flow_rate(self, name):
-        return self.dg.nodes[name]['flow_rate']
-
-    def get_node_min_flow_rate(self, name):
-        return self.dg.nodes[name]['min_flow_rate']
-
-    def get_node_viscosity(self, name):
-        return self.dg.nodes[name]['viscosity']
-
-    def get_node_min_viscosity(self, name):
-        return self.dg.nodes[name]['min_viscosity']
-
-    def get_node_density(self, name):
-        return self.dg.nodes[name]['density']
-
-    def get_node_min_density(self, name):
-        return self.dg.nodes[name]['min_density']
-
-    def get_node_x(self, name):
-        return self.dg.nodes[name]['x']
-
-    def get_node_y(self, name):
-        return self.dg.nodes[name]['y']
-
-    def get_node_min_x(self, name):
-        return self.dg.nodes[name]['min_x']
-
-    def get_node_min_y(self, name):
-        return self.dg.nodes[name]['min_y']
-        
     def translate_chip(self, name):
         """Create SMT expressions for bounding the nodes to be within constraints
         of the overall chip such as its area provided
@@ -400,7 +384,7 @@ class Schematic():
         """
         # Name is just a string, this gets the corresponding dictionary of
         # attributes and their values stored by NetworkX
-        #named_node = self.dg.nodes[name]
+        named_node = self.dg.nodes[name]
 
         # Pressure at a node is the sum of the pressures flowing into it
         output_pressures = []
@@ -410,89 +394,54 @@ class Schematic():
             # Could modify equation based on https://www.dolomite-microfluidics.com/wp-content/uploads/Droplet_Junction_Chip_characterisation_-_application_note.pdf
             output_pressures.append(self.channel_output_pressure((node_name, name)))
         if len(self.dg.pred[name]) == 1:
-            #self.exprs.append(Equals(named_node['pressure'],
-            #                         output_pressures[0]
-            #                         ))
-            self.exprs.append(Equals(self.get_node_pressure(name),
+            self.exprs.append(Equals(named_node['pressure'],
                                      output_pressures[0]
-                                     ))                        
+                                     ))
         elif len(self.dg.pred[name]) > 1:
-            #self.exprs.append(Equals(named_node['pressure'],
-            #                         Plus(output_pressures)
-            #                         ))
-            self.exprs.append(Equals(self.get_node_pressure(name),
+            self.exprs.append(Equals(named_node['pressure'],
                                      Plus(output_pressures)
                                      ))
 
         # If parameters are provided by the user, then set the
         # their Symbol equal to that value, otherwise make it greater than 0
-        #if named_node['min_pressure']:
-        if self.get_node_min_pressure(name):
+        if named_node['min_pressure']:
             # named_node['pressure'] returns a variable for that node for its
             # pressure to be solved for by SMT solver, if min_pressure has a
             # value then a user defined value was provided and this variable
             # is set equal to this value, else simply set its value to be > 0
             # same is true for viscosity, pressure, flow_rate, X, Y and density
-            #self.exprs.append(Equals(named_node['pressure'],
-            #                         Real(named_node['min_pressure'])
-            #                         ))
-            self.exprs.append(Equals(self.get_node_pressure(name),
-                                     Real(self.get_node_min_pressure(name))
+            self.exprs.append(Equals(named_node['pressure'],
+                                     Real(named_node['min_pressure'])
                                      ))
         else:
-            #self.exprs.append(GT(named_node['pressure'], Real(0)))
-            self.exprs.append(GT(self.get_node_pressure(name), Real(0)))
+            self.exprs.append(GT(named_node['pressure'], Real(0)))
 
-        #if named_node['min_x']:
-        #    self.exprs.append(Equals(named_node['x'], Real(named_node['min_x'])))
-        #    self.exprs.append(Equals(named_node['y'], Real(named_node['min_y'])))
-        #else:
-        #    self.exprs.append(GE(named_node['x'], Real(0)))
-        #    self.exprs.append(GE(named_node['y'], Real(0)))
-        if self.get_node_min_x(name):
-            self.exprs.append(Equals(self.get_node_x(name), Real(self.get_node_min_x(name))))
-            self.exprs.append(Equals(self.get_node_y(name), Real(self.get_node_min_y(name))))
+        if named_node['min_x']:
+            self.exprs.append(Equals(named_node['x'], Real(named_node['min_x'])))
+            self.exprs.append(Equals(named_node['y'], Real(named_node['min_y'])))
         else:
-            self.exprs.append(GE(self.get_node_x(name), Real(0)))
-            self.exprs.append(GE(self.get_node_y(name), Real(0)))
+            self.exprs.append(GE(named_node['x'], Real(0)))
+            self.exprs.append(GE(named_node['y'], Real(0)))
 
-        #if named_node['min_flow_rate']:
-        #    self.exprs.append(Equals(named_node['flow_rate'],
-        #                             Real(named_node['min_flow_rate'])
-        #                             ))
-        #else:
-        #    self.exprs.append(GT(named_node['flow_rate'], Real(0)))
-        if self.get_node_min_flow_rate(name):
-            self.exprs.append(Equals(self.get_node_flow_rate(name),
-                                     Real(self.get_node_min_flow_rate(name))
+        if named_node['min_flow_rate']:
+            self.exprs.append(Equals(named_node['flow_rate'],
+                                     Real(named_node['min_flow_rate'])
                                      ))
         else:
-            self.exprs.append(GT(self.get_node_flow_rate(name), Real(0)))
-        #if named_node['min_viscosity']:
-        #    self.exprs.append(Equals(named_node['viscosity'],
-        #                             Real(named_node['min_viscosity'])
-        #                             ))
-        #else:
-        #    self.exprs.append(GT(named_node['viscosity'], Real(0)))
-        if self.get_node_min_viscosity(name):
-            self.exprs.append(Equals(self.get_node_viscosity(name),
-                                     Real(self.get_node_min_viscosity(name))
+            self.exprs.append(GT(named_node['flow_rate'], Real(0)))
+        if named_node['min_viscosity']:
+            self.exprs.append(Equals(named_node['viscosity'],
+                                     Real(named_node['min_viscosity'])
                                      ))
         else:
-            self.exprs.append(GT(self.get_node_viscosity(name), Real(0)))
+            self.exprs.append(GT(named_node['viscosity'], Real(0)))
 
-        #if named_node['min_density']:
-        #    self.exprs.append(Equals(named_node['density'],
-        #                             Real(named_node['min_density'])
-        #                             ))
-        #else:
-        #    self.exprs.append(GT(named_node['density'], Real(0)))
-        if self.get_node_min_density(name):
-            self.exprs.append(Equals(self.get_node_density(name),
-                                     Real(self.get_node_min_density(name))
+        if named_node['min_density']:
+            self.exprs.append(Equals(named_node['density'],
+                                     Real(named_node['min_density'])
                                      ))
         else:
-            self.exprs.append(GT(self.get_node_density(name), Real(0)))
+            self.exprs.append(GT(named_node['density'], Real(0)))
         return
 
     def translate_input(self, name):
@@ -514,22 +463,17 @@ class Schematic():
 
         # Name is just a string, this gets the corresponding dictionary of
         # attributes and their values stored by NetworkX
-        #named_node = self.dg.nodes[name]
+        named_node = self.dg.nodes[name]
 
         # Calculate flow rate for this port based on pressure and channels out
         # if not specified by user
-        #if not named_node['min_flow_rate']:
-        #    flow_rate = self.calculate_port_flow_rate(name)
-        #    self.exprs.append(Equals(named_node['flow_rate'], flow_rate))
-        if not self.get_node_min_flow_rate(name):
+        if not named_node['min_flow_rate']:
             flow_rate = self.calculate_port_flow_rate(name)
-            self.exprs.append(Equals(self.get_node_flow_rate(name), flow_rate))
+            self.exprs.append(Equals(named_node['flow_rate'], flow_rate))
 
         # To recursively traverse, call on all successor channels
         for node_out in self.dg.succ[name]:
-            #self.translation_strats[self.dg.edges[(name, node_out)]['kind']](
-            #        (name, node_out))
-            self.translation_strats[self.get_channel_kind(name, node_out)](
+            self.translation_strats[self.dg.edges[(name, node_out)]['kind']](
                     (name, node_out))
         return
 
@@ -552,27 +496,21 @@ class Schematic():
 
         # Name is just a string, this gets the corresponding dictionary of
         # attributes and their values stored by NetworkX
-        #named_node = self.dg.nodes[name]
+        named_node = self.dg.nodes[name]
         # Calculate flow rate for this port based on pressure and channels out
         # if not specified by user
-        #if not named_node['min_flow_rate']:
-        if not self.get_node_min_flow_rate(name):
+        if not named_node['min_flow_rate']:
             # The flow rate at this node is the sum of the flow rates of the
             # the channel coming in (I think, should be verified)
             total_flow_in = []
             for channel_in in self.dg.pred[name]:
-               # total_flow_in.append(self.dg.edges[(channel_in, name)]
-               #                      ['flow_rate'])
-               total_flow_in.append(self.get_channel_flow_rate(channel_in, name))
+                total_flow_in.append(self.dg.edges[(channel_in, name)]
+                                     ['flow_rate'])
             if len(total_flow_in) == 1:
-                #self.exprs.append(Equals(named_node['flow_rate'],
-                #                         total_flow_in[0]))
-                self.exprs.append(Equals(self.get_channel_flow_rate(name),
+                self.exprs.append(Equals(named_node['flow_rate'],
                                          total_flow_in[0]))
             else:
-                #self.exprs.append(Equals(named_node['flow_rate'],
-                #                         Plus(total_flow_in)))
-                self.exprs.append(Equals(self.get_channel_flow_rate(name),
+                self.exprs.append(Equals(named_node['flow_rate'],
                                          Plus(total_flow_in)))
         return
 
@@ -587,19 +525,16 @@ class Schematic():
         :raises: KeyError, if channel is not found in the list of defined edges
         """
         try:
-            #named_channel = self.dg.edges[name]
-            named_channel = self.get_channel(name)
+            named_channel = self.dg.edges[name]
         except KeyError:
             raise KeyError('Channel with ports %s was not defined' % name)
 
         # Name is just a string, this gets the corresponding dictionary of
         # attributes and their values stored by NetworkX
-        #port_in_name = named_channel['port_from']
-        #port_out_name = named_channel['port_to']
-        port_in_name = self.get_channel_port_from(name)
-        port_out_name = self.get_channel_port_to(name)
-        #port_in = self.dg.nodes[port_in_name]
-        #port_out = self.dg.nodes[port_out_name]
+        port_in_name = named_channel['port_from']
+        port_out_name = named_channel['port_to']
+        port_in = self.dg.nodes[port_in_name]
+        port_out = self.dg.nodes[port_out_name]
 
         # Create expression to force length to equal distance between end nodes
         self.exprs.append(self.pythagorean_length(name))
@@ -607,52 +542,29 @@ class Schematic():
         # Set the length determined by pythagorean theorem equal to the user
         # provided number if provided, else assert that the length be greater
         # than 0, same for width and height
-        #if named_channel['min_length']:
-        #    self.exprs.append(Equals(named_channel['length'],
-        #                             Real(named_channel['min_length'])))
-        #else:
-        #    self.exprs.append(GT(named_channel['length'], Real(0)))
-        if self.get_channel_min_length(name):
-            self.exprs.append(Equals(self.get_channel_length(name),
-                                     Real(self.get_channel_min_length(name))))
+        if named_channel['min_length']:
+            self.exprs.append(Equals(named_channel['length'],
+                                     Real(named_channel['min_length'])))
         else:
-            self.exprs.append(GT(self.get_channel_length(name), Real(0)))
-        #if named_channel['min_width']:
-        #    self.exprs.append(Equals(named_channel['width'],
-        #                             Real(named_channel['min_width'])))
-        #else:
-        #    self.exprs.append(GT(named_channel['width'], Real(0)))
-        if self.get_channel_min_width(name):
-            self.exprs.append(Equals(self.get_channel_width(name),
-                                     Real(self.get_channel_min_width(name))))
+            self.exprs.append(GT(named_channel['length'], Real(0)))
+        if named_channel['min_width']:
+            self.exprs.append(Equals(named_channel['width'],
+                                     Real(named_channel['min_width'])))
         else:
-            self.exprs.append(GT(self.get_channel_width(name), Real(0)))
-        #if named_channel['min_height']:
-        #    self.exprs.append(Equals(named_channel['height'],
-        #                             Real(named_channel['min_height'])))
-        #else:
-        #    self.exprs.append(GT(named_channel['height'], Real(0)))
-        if self.get_channel_min_height(name):
-            self.exprs.append(Equals(self.get_channel_height(name),
-                                     Real(self.get_channel_min_height(name))))
+            self.exprs.append(GT(named_channel['width'], Real(0)))
+        if named_channel['min_height']:
+            self.exprs.append(Equals(named_channel['height'],
+                                     Real(named_channel['min_height'])))
         else:
-            self.exprs.append(GT(self.get_channel_height(name), Real(0)))
+            self.exprs.append(GT(named_channel['height'], Real(0)))
 
         # Assert that viscosity in channel equals input node viscosity
         # Set output viscosity to equal input since this should be constant
         # This must be performed before calculating resistance
-        #self.exprs.append(Equals(named_channel['viscosity'],
-        #                         port_in['viscosity']))
-        #self.exprs.append(Equals(port_out['viscosity'],
-        #                         port_in['viscosity']))
-        #self.exprs.append(Equals(self.get_channel_viscosity(name),
-        #                         port_in['viscosity']))
-        #self.exprs.append(Equals(port_out['viscosity'],
-        #                         port_in['viscosity']))
-        self.exprs.append(Equals(self.get_channel_viscosity(name),
-                                 self.get_node_viscosity(port_in_name)))
-        self.exprs.append(Equals(self.get_node_viscosity(port_out_name),
-                                 self.get_node_viscosity(port_in_name)))
+        self.exprs.append(Equals(named_channel['viscosity'],
+                                 port_in['viscosity']))
+        self.exprs.append(Equals(port_out['viscosity'],
+                                 port_in['viscosity']))
 
         # Pressure at end of channel is lower based on the resistance of
         # the channel as calculated by calculate_channel_resistance and
@@ -664,21 +576,16 @@ class Schematic():
         # equation for the resistance, then assert resistance is >0
         self.exprs.append(resistance_list[0])
         resistance = resistance_list[1]
-        #self.exprs.append(Equals(named_channel['resistance'], resistance))
-        #self.exprs.append(GT(named_channel['resistance'], Real(0)))
-        self.exprs.append(Equals(self.get_channel_resistance(name), resistance))
-        self.exprs.append(GT(self.get_channel_resistance(name), Real(0)))
+        self.exprs.append(Equals(named_channel['resistance'], resistance))
+        self.exprs.append(GT(named_channel['resistance'], Real(0)))
 
         # Assert flow rate equal to the flow rate coming in
-        #self.exprs.append(Equals(named_channel['flow_rate'],
-        #                         port_in['flow_rate']))
-        self.exprs.append(Equals(self.get_channel_flow_rate(name),
-                                 self.get_node_flow_rate(port_in_name)))
+        self.exprs.append(Equals(named_channel['flow_rate'],
+                                 port_in['flow_rate']))
 
         # Channels do not have pressure because it decreases across channel
         # Call translate on the output to continue traversing the channel
-        #self.translation_strats[port_out['kind']](port_out_name)
-        self.translation_strats[self.get_node_kind(port_out_name)](port_out_name)
+        self.translation_strats[port_out['kind']](port_out_name)
         return
 
     def translate_tjunc(self, name, crit_crossing_angle=0.5):
