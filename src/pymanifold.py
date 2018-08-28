@@ -4,6 +4,7 @@ import json
 import os
 import networkx as nx
 from networkx.readwrite import json_graph
+from OMPython import ModelicaSystem
 #  import matplotlib.pyplot as plt  # include if you want to show graph
 from pysmt.shortcuts import Symbol, Plus, Times, Div, Pow, Equals, Real
 from pysmt.shortcuts import Minus, GE, GT, LE, LT, And, get_model, is_sat
@@ -1173,3 +1174,53 @@ class Schematic():
 	
         with open(path, 'w') as outfile:
             json.dump(manifold, outfile, separators=(',', ':'))
+
+    def paramchange(self, modfile):
+        """ This function changes the parameters of a modelica file via OMPython"""
+        """ NOTE: this def code still needs to be tested + updated"""
+        if modfile.endswith('.mo'):
+            modname = modfile[:-3]
+        mod = ModelicaSystem(modfile, modname)
+		
+        json_out = json_graph.node_link_data(self.dg)
+        stuff = [str(i) for i in json_out['links']] 
+        edits = dict(self.solve())
+        edits1 = {str(key):str(value) for key, value in edits.items()}
+        fin_edits = {str(key):str(value) for key, value in edits.items()}
+		
+        for key, value in edits1.items():
+            if value[-1] == '?':
+                final_val1 = float(value[:-1])
+                fin_edits[key] = final_val1
+            if '/' in value:
+                s_list = value.split('/')
+                val_list = [float(i) for i in s_list]
+                final_val2 = val_list[0] / val_list[1]
+                fin_edits[key] = final_val2
+        
+        for key, value in fin_edits.items():
+            if type(value) == str:
+                fin_edits[key] = float(value)
+
+        for sub in json_out['links']:
+            for key in sub:
+                if type(sub[key]) != bool and type(sub[key]) != int and type(sub[key]) != float:
+                    sub[key] = str(sub[key])
+		
+        for sub in json_out['nodes']:
+            for key in sub:
+                if type(sub[key]) != bool and type(sub[key]) != int and type(sub[key]) != float:
+                    sub[key] = str(sub[key])
+
+        for key, value in fin_edits.items():
+            for sub in json_out['links']:
+                for stuff in sub:
+                    if key == sub[stuff]:
+                        sub[stuff] = value
+            for sub in json_out['nodes']:
+                for stuff in sub:
+                    if key == sub[stuff]:
+                        sub[stuff] = value
+
+        mod.setParameters(**{json_out})
+        
